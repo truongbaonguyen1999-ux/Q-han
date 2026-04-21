@@ -1,0 +1,176 @@
+--[[
+    Tên Script: DeltaVN Fast Kill Aura (Rayfield UI)
+    Chức năng: Tự động đánh người chơi gần nhất với tốc độ cao
+    Phím tắt mở menu: K
+--]]
+
+-- Kiểm tra và load thư viện Rayfield
+if not game:IsLoaded() then game.Loaded:Wait() end
+
+local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+
+-- Tạo cửa sổ chính
+local Window = Rayfield:CreateWindow({
+    Name = "DeltaVN | Kill Aura",
+    LoadingTitle = "Đang tải Kill Aura...",
+    LoadingSubtitle = "by DeltaVN",
+    ToggleUIKeybind = "K",  -- Nhấn K để mở/đóng menu
+    ConfigurationSaving = {
+        Enabled = true,
+        FileName = "DeltaVN_KillAura"
+    }
+})
+
+-- Tạo Tab chính
+local MainTab = Window:CreateTab("Combat", nil)
+
+-- Tạo Section cho Kill Aura
+local KillAuraSection = MainTab:CreateSection("Kill Aura Settings")
+
+-- Các biến trạng thái
+local KillAuraEnabled = false
+local Target = nil
+local Range = 20
+local AttackSpeed = 0.05  -- Tốc độ cực nhanh (0.05 giây)
+local SilentAimEnabled = true
+
+-- Hàm tìm người chơi gần nhất
+local function GetNearestPlayer()
+    local localPlayer = game.Players.LocalPlayer
+    local character = localPlayer.Character
+    if not character or not character:FindFirstChild("HumanoidRootPart") then return nil end
+    
+    local closestDistance = Range
+    local closestPlayer = nil
+    local myPosition = character.HumanoidRootPart.Position
+    
+    for _, player in pairs(game.Players:GetPlayers()) do
+        if player ~= localPlayer then
+            local targetChar = player.Character
+            if targetChar and targetChar:FindFirstChild("HumanoidRootPart") and targetChar:FindFirstChild("Humanoid") and targetChar.Humanoid.Health > 0 then
+                local distance = (targetChar.HumanoidRootPart.Position - myPosition).Magnitude
+                if distance < closestDistance then
+                    closestDistance = distance
+                    closestPlayer = player
+                end
+            end
+        end
+    end
+    
+    return closestPlayer
+end
+
+-- Hàm tấn công (Silent Aim)
+local function Attack(player)
+    if not player then return end
+    
+    local localPlayer = game.Players.LocalPlayer
+    local character = localPlayer.Character
+    local targetChar = player.Character
+    
+    if not character or not targetChar then return end
+    
+    -- Kiểm tra khoảng cách
+    local myPos = character.HumanoidRootPart.Position
+    local targetPos = targetChar.HumanoidRootPart.Position
+    local distance = (targetPos - myPos).Magnitude
+    
+    if distance <= Range then
+        -- Phương pháp 1: Gửi sự kiện tấn công (phổ biến trong game Roblox)
+        -- Đây là cơ chế silent aim, gửi yêu cầu tấn công từ xa
+        local attackEvent = game:GetService("ReplicatedStorage"):FindFirstChild("AttackEvent")
+        if attackEvent then
+            attackEvent:FireServer(targetChar)
+        end
+        
+        -- Phương pháp 2: Kích hoạt Remote khác (tùy game)
+        for _, remote in pairs(game:GetService("ReplicatedStorage"):GetChildren()) do
+            if remote:IsA("RemoteEvent") and (remote.Name:lower():find("attack") or remote.Name:lower():find("hit") or remote.Name:lower():find("damage")) then
+                pcall(function()
+                    remote:FireServer(targetChar)
+                end)
+            end
+        end
+        
+        -- Phương pháp 3: Click chuột tự động (mô phỏng)
+        local virtualInput = game:GetService("VirtualInputManager")
+        virtualInput:SendMouseButtonEvent(0, 0, 0, true, game, 0)
+        task.wait(0.01)
+        virtualInput:SendMouseButtonEvent(0, 0, 0, false, game, 0)
+    end
+end
+
+-- Vòng lặp chính của Kill Aura
+coroutine.wrap(function()
+    while true do
+        if KillAuraEnabled then
+            local nearest = GetNearestPlayer()
+            if nearest then
+                Attack(nearest)
+            end
+        end
+        task.wait(AttackSpeed)
+    end
+end)()
+
+-- Tạo nút bật/tắt Kill Aura
+Rayfield:CreateToggle({
+    Name = "🔥 Kill Aura",
+    CurrentValue = false,
+    Flag = "KillAuraToggle",
+    Callback = function(Value)
+        KillAuraEnabled = Value
+        if Value then
+            print("✅ Kill Aura đã BẬT - Đang tấn công kẻ thù gần nhất!")
+        else
+            print("❌ Kill Aura đã TẮT")
+        end
+    end,
+    Section = KillAuraSection
+})
+
+-- Thanh trượt chỉnh Range
+Rayfield:CreateSlider({
+    Name = "📏 Tầm đánh (Range)",
+    Range = {10, 50},
+    Increment = 5,
+    Suffix = "Studs",
+    CurrentValue = 20,
+    Flag = "RangeSlider",
+    Callback = function(Value)
+        Range = Value
+        print("⚙️ Range đã chỉnh thành: " .. Value)
+    end,
+    Section = KillAuraSection
+})
+
+-- Thanh trượt chỉnh tốc độ đánh
+Rayfield:CreateSlider({
+    Name = "⚡ Tốc độ đánh (Delay)",
+    Range = {0.01, 0.5},
+    Increment = 0.01,
+    Suffix = "giây",
+    CurrentValue = 0.05,
+    Flag = "SpeedSlider",
+    Callback = function(Value)
+        AttackSpeed = Value
+        print("⚙️ Tốc độ đánh đã chỉnh thành: " .. Value .. " giây")
+    end,
+    Section = KillAuraSection
+})
+
+-- Nút thông tin
+Rayfield:CreateButton({
+    Name = "📌 Thông tin",
+    Callback = function()
+        print("=== DeltaVN Kill Aura ===")
+        print("📖 Hướng dẫn:")
+        print("- Nhấn K để mở/đóng menu")
+        print("- Bật Kill Aura để tự động đánh")
+        print("- Chỉnh range và tốc độ tùy ý")
+        print("⚠️ Script này chỉ dùng trong server test!")
+    end,
+    Section = KillAuraSection
+})
+
+print("✅ Script đã tải thành công! Nhấn K để mở menu Rayfield.")
