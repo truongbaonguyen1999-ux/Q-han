@@ -1,0 +1,176 @@
+-- ========== KILL AURA XUYÊN TƯỜNG - FIX CHO DELTA MOBILE ==========
+-- Tự dò remote, không xoay người, chạy ổn định
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local VirtualInput = game:GetService("VirtualInputManager")
+local LocalPlayer = Players.LocalPlayer
+local UserInputService = game:GetService("UserInputService")
+
+-- Cài đặt
+local Settings = {
+    Enabled = false,
+    Range = 60,
+    AttackDelay = 0.05  -- Tăng delay nhẹ để tránh lag
+}
+
+-- Tự động tìm remote event tấn công
+local AttackRemotes = {}
+local function findAttackRemotes()
+    for _, remote in pairs(ReplicatedStorage:GetDescendants()) do
+        if remote:IsA("RemoteEvent") then
+            local name = remote.Name:lower()
+            if name:find("attack") or name:find("hit") or name:find("damage") or name:find("melee") or name:find("swing") then
+                table.insert(AttackRemotes, remote)
+            end
+        end
+    end
+    if #AttackRemotes == 0 then
+        for _, remote in pairs(ReplicatedStorage:GetDescendants()) do
+            if remote:IsA("RemoteEvent") then
+                table.insert(AttackRemotes, remote)
+            end
+        end
+    end
+    print("[Delta] Tìm thấy " .. #AttackRemotes .. " remote event")
+end
+pcall(findAttackRemotes)
+
+-- Tìm mục tiêu gần nhất
+local function GetNearestPlayer()
+    local character = LocalPlayer.Character
+    if not character or not character:FindFirstChild("HumanoidRootPart") then return nil end
+    local nearest, shortestDist = nil, Settings.Range
+    local myPos = character.HumanoidRootPart.Position
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer then
+            local targetChar = player.Character
+            if targetChar and targetChar:FindFirstChild("HumanoidRootPart") then
+                local humanoid = targetChar:FindFirstChild("Humanoid")
+                if humanoid and humanoid.Health > 0 then
+                    local dist = (targetChar.HumanoidRootPart.Position - myPos).Magnitude
+                    if dist < shortestDist then
+                        shortestDist, nearest = dist, player
+                    end
+                end
+            end
+        end
+    end
+    return nearest
+end
+
+-- Tấn công (không xoay người)
+local function Attack(targetPlayer)
+    if not targetPlayer or not targetPlayer.Character then return end
+    local targetChar = targetPlayer.Character
+    for _, remote in ipairs(AttackRemotes) do
+        pcall(function() remote:FireServer(targetChar) end)
+    end
+    local character = LocalPlayer.Character
+    if character then
+        for _, tool in pairs(character:GetChildren()) do
+            if tool:IsA("Tool") then
+                pcall(function() tool:Activate() end)
+                for _, remote in pairs(tool:GetChildren()) do
+                    if remote:IsA("RemoteEvent") then
+                        pcall(function() remote:FireServer(targetChar) end)
+                    end
+                end
+            end
+        end
+    end
+    pcall(function()
+        VirtualInput:SendMouseButtonEvent(0, 0, 0, true, game, 0)
+        task.wait(0.005)
+        VirtualInput:SendMouseButtonEvent(0, 0, 0, false, game, 0)
+    end)
+end
+
+-- Vòng lặp chính (có xử lý lỗi)
+coroutine.wrap(function()
+    while true do
+        if Settings.Enabled then
+            local success, target = pcall(GetNearestPlayer)
+            if success and target then
+                pcall(Attack, target)
+            end
+        end
+        task.wait(Settings.AttackDelay)
+    end
+end)()
+
+-- Tạo GUI đơn giản, dễ chạy trên mobile
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "KillAuraMobile"
+screenGui.ResetOnSpawn = false
+screenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+
+local button = Instance.new("ImageButton")
+button.Size = UDim2.new(0, 80, 0, 80)
+button.Position = UDim2.new(0.85, 0, 0.85, 0)
+button.BackgroundColor3 = Color3.fromRGB(150, 0, 0)
+button.BackgroundTransparency = 0.3
+button.BorderSizePixel = 0
+button.Image = "rbxassetid://6031094772"
+button.Parent = screenGui
+
+local corner = Instance.new("UICorner")
+corner.CornerRadius = UDim.new(1, 0)
+corner.Parent = button
+
+local statusText = Instance.new("TextLabel")
+statusText.Size = UDim2.new(1, 0, 0.4, 0)
+statusText.Position = UDim2.new(0, 0, 0.3, 0)
+statusText.BackgroundTransparency = 1
+statusText.TextColor3 = Color3.fromRGB(255, 255, 255)
+statusText.TextScaled = true
+statusText.Text = "OFF"
+statusText.Font = Enum.Font.GothamBold
+statusText.Parent = button
+
+local function UpdateButton()
+    if Settings.Enabled then
+        button.BackgroundColor3 = Color3.fromRGB(0, 200, 0)
+        statusText.Text = "ON"
+    else
+        button.BackgroundColor3 = Color3.fromRGB(150, 0, 0)
+        statusText.Text = "OFF"
+    end
+end
+UpdateButton()
+
+button.MouseButton1Click:Connect(function()
+    Settings.Enabled = not Settings.Enabled
+    UpdateButton()
+    pcall(function()
+        game:GetService("StarterGui"):SetCore("SendNotification", {
+            Title = "DeltaVN",
+            Text = Settings.Enabled and "✅ KILL AURA BẬT" or "❌ ĐÃ TẮT",
+            Duration = 1
+        })
+    end)
+end)
+
+-- Kéo thả nút
+local dragging = false
+local dragStart, buttonStart
+button.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Touch then
+        dragging = true
+        dragStart = input.Position
+        buttonStart = button.Position
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                dragging = false
+            end
+        end)
+    end
+end)
+UserInputService.TouchMoved:Connect(function(input)
+    if dragging then
+        local delta = input.Position - dragStart
+        button.Position = UDim2.new(buttonStart.X.Scale, buttonStart.X.Offset + delta.X, buttonStart.Y.Scale, buttonStart.Y.Offset + delta.Y)
+    end
+end)
+
+print("✅ Kill Aura đã sẵn sàng! Chạm nút đỏ để bật.")
