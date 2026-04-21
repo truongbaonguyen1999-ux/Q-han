@@ -1,0 +1,189 @@
+-- ========== KILL AURA FARM XU - THIRSTY VAMPIRE ==========
+-- Menu Rayfield, ESP, Teleport Attack, Chạy mượt trên mobile
+
+-- Load Rayfield UI
+local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+
+-- Tạo cửa sổ
+local Window = Rayfield:CreateWindow({
+    Name = "DeltaVN | Farm Xu",
+    LoadingTitle = "Đang tải Kill Aura...",
+    LoadingSubtitle = "by DeltaVN",
+    ToggleUIKeybind = "K",
+    ConfigurationSaving = { Enabled = true, FileName = "DeltaVN_FarmXu" }
+})
+
+local MainTab = Window:CreateTab("⚔️ Combat", nil)
+
+-- Cài đặt
+local Settings = {
+    Enabled = false,
+    Range = 150,        -- Tầm tìm mục tiêu (rất xa)
+    AttackDelay = 0.02, -- Tốc độ đánh cực nhanh (20ms)
+    ESP = true
+}
+
+-- Tìm remote event tấn công
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local LocalPlayer = Players.LocalPlayer
+
+local AttackRemotes = {}
+local function findRemotes()
+    for _, remote in pairs(ReplicatedStorage:GetDescendants()) do
+        if remote:IsA("RemoteEvent") then
+            local name = remote.Name:lower()
+            if name:find("attack") or name:find("hit") or name:find("damage") or name:find("melee") or name:find("swing") then
+                table.insert(AttackRemotes, remote)
+            end
+        end
+    end
+    print("[Delta] Tìm thấy " .. #AttackRemotes .. " remote")
+end
+pcall(findRemotes)
+
+-- ========== ESP (Hiện khung người chơi) ==========
+local ESPObjects = {}
+local function updateESP()
+    for _, plr in pairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer then
+            local char = plr.Character
+            if char and char:FindFirstChild("HumanoidRootPart") then
+                if not ESPObjects[plr] then
+                    local box = Instance.new("BoxHandleAdornment")
+                    box.Size = Vector3.new(4, 5, 2)
+                    box.Color3 = Color3.fromRGB(255, 0, 0)
+                    box.Transparency = 0.5
+                    box.ZIndex = 2
+                    box.AlwaysOnTop = true
+                    box.Adornee = char:FindFirstChild("HumanoidRootPart")
+                    box.Parent = char
+                    ESPObjects[plr] = box
+                end
+            elseif ESPObjects[plr] then
+                ESPObjects[plr]:Destroy()
+                ESPObjects[plr] = nil
+            end
+        end
+    end
+end
+
+-- Cập nhật ESP mỗi giây
+coroutine.wrap(function()
+    while true do
+        if Settings.ESP then pcall(updateESP) end
+        task.wait(1)
+    end
+end)()
+
+-- ========== TÌM MỤC TIÊU GẦN NHẤT ==========
+local function GetNearestPlayer()
+    local char = LocalPlayer.Character
+    if not char or not char:FindFirstChild("HumanoidRootPart") then return nil end
+    local nearest, minDist = nil, Settings.Range
+    local myPos = char.HumanoidRootPart.Position
+    for _, plr in pairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer then
+            local tChar = plr.Character
+            if tChar and tChar:FindFirstChild("HumanoidRootPart") then
+                local hum = tChar:FindFirstChild("Humanoid")
+                if hum and hum.Health > 0 then
+                    local dist = (tChar.HumanoidRootPart.Position - myPos).Magnitude
+                    if dist < minDist then
+                        minDist, nearest = dist, plr
+                    end
+                end
+            end
+        end
+    end
+    return nearest, minDist
+end
+
+-- ========== TẤN CÔNG BẰNG TELEPORT (ĐẢM BẢO LUÔN TRÚNG) ==========
+local function Attack(target)
+    if not target or not target.Character then return end
+    
+    local myChar = LocalPlayer.Character
+    local targetChar = target.Character
+    if not myChar or not targetChar then return end
+    
+    local myRoot = myChar:FindFirstChild("HumanoidRootPart")
+    local targetRoot = targetChar:FindFirstChild("HumanoidRootPart")
+    if not myRoot or not targetRoot then return end
+    
+    -- Lưu vị trí cũ
+    local oldPos = myRoot.CFrame
+    
+    -- Teleport đến sát mục tiêu (để đánh trúng chắc chắn)
+    myRoot.CFrame = CFrame.new(targetRoot.Position + Vector3.new(0, 2, 0))
+    task.wait(0.005)
+    
+    -- Gửi remote tấn công
+    for _, remote in ipairs(AttackRemotes) do
+        pcall(function() remote:FireServer(targetChar) end)
+    end
+    
+    -- Kích hoạt tool (vũ khí)
+    for _, tool in pairs(myChar:GetChildren()) do
+        if tool:IsA("Tool") then
+            pcall(function() tool:Activate() end)
+        end
+    end
+    
+    -- Quay về vị trí cũ ngay lập tức
+    myRoot.CFrame = oldPos
+end
+
+-- ========== VÒNG LẶP CHÍNH (KHÔNG LAG, KHÔNG KHÓA DI CHUYỂN) ==========
+coroutine.wrap(function()
+    while true do
+        if Settings.Enabled then
+            local target, dist = GetNearestPlayer()
+            if target then
+                pcall(Attack, target)
+            end
+        end
+        task.wait(Settings.AttackDelay)
+    end
+end)()
+
+-- ========== MENU RAYFIELD ==========
+Rayfield:CreateToggle({
+    Name = "🔥 KILL AURA (Farm Xu)",
+    CurrentValue = false,
+    Flag = "KillAura",
+    Callback = function(v) Settings.Enabled = v end,
+    Section = MainTab
+})
+
+Rayfield:CreateSlider({
+    Name = "📏 Tầm tìm mục tiêu",
+    Range = {50, 200},
+    Increment = 10,
+    Suffix = " studs",
+    CurrentValue = 150,
+    Flag = "Range",
+    Callback = function(v) Settings.Range = v end,
+    Section = MainTab
+})
+
+Rayfield:CreateSlider({
+    Name = "⚡ Tốc độ đánh (Delay)",
+    Range = {0.01, 0.2},
+    Increment = 0.01,
+    Suffix = " giây",
+    CurrentValue = 0.02,
+    Flag = "Speed",
+    Callback = function(v) Settings.AttackDelay = v end,
+    Section = MainTab
+})
+
+Rayfield:CreateToggle({
+    Name = "👁️ ESP (Khung đỏ)",
+    CurrentValue = true,
+    Flag = "ESP",
+    Callback = function(v) Settings.ESP = v end,
+    Section = MainTab
+})
+
+print("✅ Đã tải! Nhấn K để mở menu. Bật Kill Aura là farm xu cực nhanh.")
