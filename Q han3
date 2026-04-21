@@ -1,0 +1,298 @@
+-- ========== KILL AURA XUYÊN TƯỜNG - KHÔNG XOAY NGƯỜI ==========
+-- Dành cho điện thoại, vẫn di chuyển bình thường
+-- Bỏ Silent Aim: nhân vật KHÔNG tự động quay lại khi đánh
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local VirtualInput = game:GetService("VirtualInputManager")
+local LocalPlayer = Players.LocalPlayer
+
+-- ========== CÀI ĐẶT ==========
+local Settings = {
+    Enabled = false,
+    Range = 60,        -- Tầm đánh xa (xuyên tường)
+    AttackDelay = 0.02 -- Tốc độ spam cực nhanh
+}
+
+-- ========== TÌM MỤC TIÊU GẦN NHẤT (BỎ QUA TƯỜNG) ==========
+local function GetNearestPlayer()
+    local character = LocalPlayer.Character
+    if not character or not character:FindFirstChild("HumanoidRootPart") then return nil end
+    
+    local nearest = nil
+    local shortestDist = Settings.Range
+    local myPos = character.HumanoidRootPart.Position
+    
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer then
+            local targetChar = player.Character
+            if targetChar and targetChar:FindFirstChild("HumanoidRootPart") then
+                local humanoid = targetChar:FindFirstChild("Humanoid")
+                if humanoid and humanoid.Health > 0 then
+                    -- Tính khoảng cách xuyên tường (ko cần raycast)
+                    local dist = (targetChar.HumanoidRootPart.Position - myPos).Magnitude
+                    if dist < shortestDist then
+                        shortestDist = dist
+                        nearest = player
+                    end
+                end
+            end
+        end
+    end
+    return nearest
+end
+
+-- ========== HÀM TẤN CÔNG (KHÔNG XOAY NGƯỜI) ==========
+local function Attack(targetPlayer)
+    if not targetPlayer then return end
+    local targetChar = targetPlayer.Character
+    if not targetChar or not targetChar:FindFirstChild("HumanoidRootPart") then return end
+    
+    -- ====== KHÔNG CÓ SILENT AIM ======
+    -- Nhân vật GIỮ NGUYÊN HƯỚNG, không tự động quay
+    
+    -- Gửi sự kiện tấn công qua RemoteEvent
+    for _, remote in pairs(ReplicatedStorage:GetChildren()) do
+        if remote:IsA("RemoteEvent") then
+            local remoteName = remote.Name:lower()
+            if remoteName:find("attack") or remoteName:find("hit") or remoteName:find("damage") or remoteName:find("swing") or remoteName:find("melee") then
+                pcall(function()
+                    remote:FireServer(targetChar)
+                end)
+            end
+        end
+    end
+    
+    -- Gửi sự kiện từ Tool (vũ khí đang cầm)
+    local character = LocalPlayer.Character
+    if character then
+        for _, tool in pairs(character:GetChildren()) do
+            if tool:IsA("Tool") then
+                -- Kích hoạt tool (cầm kiếm/gậy)
+                pcall(function()
+                    tool:Activate()
+                end)
+                
+                -- Gửi remote từ tool
+                for _, remote in pairs(tool:GetChildren()) do
+                    if remote:IsA("RemoteEvent") then
+                        pcall(function()
+                            remote:FireServer(targetChar)
+                        end)
+                    end
+                end
+            end
+        end
+    end
+    
+    -- Mô phỏng click chuột/touch (spam đánh thường)
+    pcall(function()
+        VirtualInput:SendMouseButtonEvent(0, 0, 0, true, game, 0)
+        task.wait(0.005)
+        VirtualInput:SendMouseButtonEvent(0, 0, 0, false, game, 0)
+    end)
+end
+
+-- ========== VÒNG LẶP SPAM ĐÁNH ==========
+coroutine.wrap(function()
+    while true do
+        if Settings.Enabled then
+            local target = GetNearestPlayer()
+            if target then
+                Attack(target)
+            end
+        end
+        task.wait(Settings.AttackDelay)
+    end
+end)()
+
+-- ========== TẠO NÚT BẬT/TẮT TRÊN MÀN HÌNH ==========
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "KillAuraMobile"
+screenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+
+-- Nút bật/tắt chính
+local button = Instance.new("ImageButton")
+button.Size = UDim2.new(0, 90, 0, 90)
+button.Position = UDim2.new(0.85, 0, 0.82, 0)
+button.BackgroundColor3 = Color3.fromRGB(150, 0, 0)
+button.BackgroundTransparency = 0.2
+button.BorderSizePixel = 0
+button.Image = "rbxassetid://6031094772"
+button.Parent = screenGui
+
+local corner = Instance.new("UICorner")
+corner.CornerRadius = UDim.new(1, 0)
+corner.Parent = button
+
+local statusText = Instance.new("TextLabel")
+statusText.Size = UDim2.new(1, 0, 0.4, 0)
+statusText.Position = UDim2.new(0, 0, 0.3, 0)
+statusText.BackgroundTransparency = 1
+statusText.TextColor3 = Color3.fromRGB(255, 255, 255)
+statusText.TextScaled = true
+statusText.Text = "OFF"
+statusText.Font = Enum.Font.GothamBold
+statusText.Parent = button
+
+local function UpdateButton()
+    if Settings.Enabled then
+        button.BackgroundColor3 = Color3.fromRGB(0, 200, 0)
+        statusText.Text = "ON"
+    else
+        button.BackgroundColor3 = Color3.fromRGB(150, 0, 0)
+        statusText.Text = "OFF"
+    end
+end
+UpdateButton()
+
+button.MouseButton1Click:Connect(function()
+    Settings.Enabled = not Settings.Enabled
+    UpdateButton()
+    game:GetService("StarterGui"):SetCore("SendNotification", {
+        Title = "DeltaVN",
+        Text = Settings.Enabled and "✅ KILL AURA BẬT (Xuyên tường - Không xoay người)" or "❌ ĐÃ TẮT",
+        Duration = 1
+    })
+end)
+
+-- ========== THANH TRƯỢT ĐIỀU CHỈNH TẦM ĐÁNH ==========
+local sliderFrame = Instance.new("Frame")
+sliderFrame.Size = UDim2.new(0, 220, 0, 90)
+sliderFrame.Position = UDim2.new(0.02, 0, 0.75, 0)
+sliderFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+sliderFrame.BackgroundTransparency = 0.2
+sliderFrame.BorderSizePixel = 0
+sliderFrame.Parent = screenGui
+
+local sliderCorner = Instance.new("UICorner")
+sliderCorner.CornerRadius = UDim.new(0, 12)
+sliderCorner.Parent = sliderFrame
+
+local sliderLabel = Instance.new("TextLabel")
+sliderLabel.Size = UDim2.new(1, 0, 0.4, 0)
+sliderLabel.Position = UDim2.new(0, 0, 0, 0)
+sliderLabel.BackgroundTransparency = 1
+sliderLabel.Text = "🎯 Tầm đánh: " .. Settings.Range
+sliderLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+sliderLabel.TextScaled = true
+sliderLabel.Font = Enum.Font.GothamBold
+sliderLabel.Parent = sliderFrame
+
+local slider = Instance.new("Frame")
+slider.Size = UDim2.new(0.9, 0, 0.25, 0)
+slider.Position = UDim2.new(0.05, 0, 0.55, 0)
+slider.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+slider.BorderSizePixel = 0
+slider.Parent = sliderFrame
+
+local sliderFill = Instance.new("Frame")
+sliderFill.Size = UDim2.new(Settings.Range / 100, 0, 1, 0)
+sliderFill.BackgroundColor3 = Color3.fromRGB(0, 200, 0)
+sliderFill.BorderSizePixel = 0
+sliderFill.Parent = slider
+
+local sliderCorner2 = Instance.new("UICorner")
+sliderCorner2.CornerRadius = UDim.new(1, 0)
+sliderCorner2.Parent = sliderFill
+
+local dragging = false
+local function updateRange(input)
+    local relativeX = (input.Position.X - slider.AbsolutePosition.X) / slider.AbsoluteSize.X
+    local newRange = math.clamp(math.floor(relativeX * 100), 15, 100)
+    Settings.Range = newRange
+    sliderFill.Size = UDim2.new(newRange / 100, 0, 1, 0)
+    sliderLabel.Text = "🎯 Tầm đánh: " .. newRange .. " (Xuyên tường)"
+end
+
+slider.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Touch then
+        dragging = true
+        updateRange(input)
+    end
+end)
+
+slider.InputEnded:Connect(function()
+    dragging = false
+end)
+
+game:GetService("UserInputService").TouchMoved:Connect(function(input)
+    if dragging then
+        updateRange(input)
+    end
+end)
+
+-- ========== NÚT ĐIỀU CHỈNH TỐC ĐỘ (TÙY CHỌN) ==========
+local speedFrame = Instance.new("Frame")
+speedFrame.Size = UDim2.new(0, 220, 0, 80)
+speedFrame.Position = UDim2.new(0.02, 0, 0.88, 0)
+speedFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+speedFrame.BackgroundTransparency = 0.2
+speedFrame.BorderSizePixel = 0
+speedFrame.Parent = screenGui
+
+local speedCorner = Instance.new("UICorner")
+speedCorner.CornerRadius = UDim.new(0, 12)
+speedCorner.Parent = speedFrame
+
+local speedLabel = Instance.new("TextLabel")
+speedLabel.Size = UDim2.new(1, 0, 0.4, 0)
+speedLabel.Position = UDim2.new(0, 0, 0, 0)
+speedLabel.BackgroundTransparency = 1
+speedLabel.Text = "⚡ Tốc độ: " .. math.floor(Settings.AttackDelay * 1000) .. "ms"
+speedLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+speedLabel.TextScaled = true
+speedLabel.Font = Enum.Font.GothamBold
+speedLabel.Parent = speedFrame
+
+local speedSlider = Instance.new("Frame")
+speedSlider.Size = UDim2.new(0.9, 0, 0.25, 0)
+speedSlider.Position = UDim2.new(0.05, 0, 0.55, 0)
+speedSlider.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+speedSlider.BorderSizePixel = 0
+speedSlider.Parent = speedFrame
+
+local speedFill = Instance.new("Frame")
+local minDelay = 5   -- 5ms nhanh nhất
+local maxDelay = 80  -- 80ms chậm nhất
+local delayRange = maxDelay - minDelay
+local currentDelayValue = math.clamp(Settings.AttackDelay * 1000, minDelay, maxDelay)
+speedFill.Size = UDim2.new((currentDelayValue - minDelay) / delayRange, 0, 1, 0)
+speedFill.BackgroundColor3 = Color3.fromRGB(255, 150, 0)
+speedFill.BorderSizePixel = 0
+speedFill.Parent = speedSlider
+
+local speedCorner2 = Instance.new("UICorner")
+speedCorner2.CornerRadius = UDim.new(1, 0)
+speedCorner2.Parent = speedFill
+
+local speedDragging = false
+local function updateSpeed(input)
+    local relativeX = (input.Position.X - speedSlider.AbsolutePosition.X) / speedSlider.AbsoluteSize.X
+    local delayMs = math.clamp(minDelay + relativeX * delayRange, minDelay, maxDelay)
+    Settings.AttackDelay = delayMs / 1000
+    speedFill.Size = UDim2.new((delayMs - minDelay) / delayRange, 0, 1, 0)
+    speedLabel.Text = "⚡ Tốc độ: " .. math.floor(delayMs) .. "ms"
+end
+
+speedSlider.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Touch then
+        speedDragging = true
+        updateSpeed(input)
+    end
+end)
+
+speedSlider.InputEnded:Connect(function()
+    speedDragging = false
+end)
+
+game:GetService("UserInputService").TouchMoved:Connect(function(input)
+    if speedDragging then
+        updateSpeed(input)
+    end
+end)
+
+print("✅ KILL AURA XUYÊN TƯỜNG - KHÔNG XOAY NGƯỜI ĐÃ TẢI!")
+print("📱 Chạm nút đỏ để bật - VẪN DI CHUYỂN BÌNH THƯỜNG")
+print("🚫 NHÂN VẬT KHÔNG TỰ ĐỘNG QUAY LƯNG")
+print("🧱 Đánh xuyên tường - Đứng xa vẫn trúng")
