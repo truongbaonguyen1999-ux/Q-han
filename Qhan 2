@@ -1,0 +1,210 @@
+-- ========== KILL AURA CHO ĐIỆN THOẠI ==========
+-- Tự động đánh người chơi gần nhất
+-- Nút bật/tắt hiển thị trên màn hình
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local VirtualInput = game:GetService("VirtualInputManager")
+local LocalPlayer = Players.LocalPlayer
+
+-- Cài đặt
+local Settings = {
+    Enabled = false,
+    Range = 30,
+    AttackDelay = 0.03
+}
+
+-- Hàm tìm người chơi gần nhất
+local function GetNearestPlayer()
+    local character = LocalPlayer.Character
+    if not character or not character:FindFirstChild("HumanoidRootPart") then return nil end
+    
+    local nearest = nil
+    local shortestDist = Settings.Range
+    local myPos = character.HumanoidRootPart.Position
+    
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer then
+            local targetChar = player.Character
+            if targetChar and targetChar:FindFirstChild("HumanoidRootPart") then
+                local humanoid = targetChar:FindFirstChild("Humanoid")
+                if humanoid and humanoid.Health > 0 then
+                    local dist = (targetChar.HumanoidRootPart.Position - myPos).Magnitude
+                    if dist < shortestDist then
+                        shortestDist = dist
+                        nearest = player
+                    end
+                end
+            end
+        end
+    end
+    return nearest
+end
+
+-- Hàm tấn công
+local function Attack(targetPlayer)
+    if not targetPlayer then return end
+    local targetChar = targetPlayer.Character
+    if not targetChar then return end
+    
+    -- Gửi sự kiện tấn công qua RemoteEvent
+    for _, remote in pairs(ReplicatedStorage:GetChildren()) do
+        if remote:IsA("RemoteEvent") then
+            local remoteName = remote.Name:lower()
+            if remoteName:find("attack") or remoteName:find("hit") or remoteName:find("damage") or remoteName:find("swing") then
+                pcall(function()
+                    remote:FireServer(targetChar)
+                end)
+            end
+        end
+    end
+    
+    -- Mô phỏng click màn hình (touch)
+    pcall(function()
+        VirtualInput:SendMouseButtonEvent(0, 0, 0, true, game, 0)
+        task.wait(0.01)
+        VirtualInput:SendMouseButtonEvent(0, 0, 0, false, game, 0)
+    end)
+end
+
+-- Vòng lặp Kill Aura
+coroutine.wrap(function()
+    while true do
+        if Settings.Enabled then
+            local target = GetNearestPlayer()
+            if target then
+                Attack(target)
+            end
+        end
+        task.wait(Settings.AttackDelay)
+    end
+end)()
+
+-- ========== TẠO NÚT BẬT/TẮT TRÊN MÀN HÌNH ==========
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "KillAuraMobile"
+screenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+
+local button = Instance.new("ImageButton")
+button.Size = UDim2.new(0, 80, 0, 80)
+button.Position = UDim2.new(0.85, 0, 0.85, 0)
+button.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+button.BackgroundTransparency = 0.3
+button.BorderSizePixel = 0
+button.Image = "rbxassetid://6031094772" -- icon mặc định
+button.Parent = screenGui
+
+-- Thêm hiệu ứng bo tròn
+local corner = Instance.new("UICorner")
+corner.CornerRadius = UDim.new(1, 0)
+corner.Parent = button
+
+-- Text hiển thị trạng thái
+local statusText = Instance.new("TextLabel")
+statusText.Size = UDim2.new(1, 0, 0.4, 0)
+statusText.Position = UDim2.new(0, 0, 0.3, 0)
+statusText.BackgroundTransparency = 1
+statusText.TextColor3 = Color3.fromRGB(255, 255, 255)
+statusText.TextScaled = true
+statusText.Text = "OFF"
+statusText.Font = Enum.Font.GothamBold
+statusText.Parent = button
+
+-- Đổi màu nút khi bật/tắt
+local function UpdateButton()
+    if Settings.Enabled then
+        button.BackgroundColor3 = Color3.fromRGB(0, 200, 0)
+        statusText.Text = "ON"
+        statusText.TextColor3 = Color3.fromRGB(255, 255, 255)
+    else
+        button.BackgroundColor3 = Color3.fromRGB(150, 0, 0)
+        statusText.Text = "OFF"
+        statusText.TextColor3 = Color3.fromRGB(255, 255, 255)
+    end
+end
+
+UpdateButton()
+
+-- Sự kiện chạm vào nút (mobile)
+button.MouseButton1Click:Connect(function()
+    Settings.Enabled = not Settings.Enabled
+    UpdateButton()
+    
+    -- Thông báo nhỏ
+    game:GetService("StarterGui"):SetCore("SendNotification", {
+        Title = "DeltaVN Mobile",
+        Text = Settings.Enabled and "✅ Kill Aura ĐÃ BẬT" or "❌ Kill Aura ĐÃ TẮT",
+        Duration = 1
+    })
+end)
+
+-- ========== THANH TRƯỢT ĐIỀU CHỈNH TẦM ĐÁNH ==========
+local sliderFrame = Instance.new("Frame")
+sliderFrame.Size = UDim2.new(0, 200, 0, 80)
+sliderFrame.Position = UDim2.new(0.02, 0, 0.7, 0)
+sliderFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+sliderFrame.BackgroundTransparency = 0.2
+sliderFrame.BorderSizePixel = 0
+sliderFrame.Parent = screenGui
+
+local sliderCorner = Instance.new("UICorner")
+sliderCorner.CornerRadius = UDim.new(0, 10)
+sliderCorner.Parent = sliderFrame
+
+local sliderLabel = Instance.new("TextLabel")
+sliderLabel.Size = UDim2.new(1, 0, 0.4, 0)
+sliderLabel.Position = UDim2.new(0, 0, 0, 0)
+sliderLabel.BackgroundTransparency = 1
+sliderLabel.Text = "Tầm đánh: " .. Settings.Range
+sliderLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+sliderLabel.TextScaled = true
+sliderLabel.Font = Enum.Font.Gotham
+sliderLabel.Parent = sliderFrame
+
+local slider = Instance.new("Frame")
+slider.Size = UDim2.new(0.9, 0, 0.3, 0)
+slider.Position = UDim2.new(0.05, 0, 0.5, 0)
+slider.BackgroundColor3 = Color3.fromRGB(100, 100, 100)
+slider.BorderSizePixel = 0
+slider.Parent = sliderFrame
+
+local sliderFill = Instance.new("Frame")
+sliderFill.Size = UDim2.new(Settings.Range / 50, 0, 1, 0)
+sliderFill.BackgroundColor3 = Color3.fromRGB(0, 200, 0)
+sliderFill.BorderSizePixel = 0
+sliderFill.Parent = slider
+
+local sliderCorner2 = Instance.new("UICorner")
+sliderCorner2.CornerRadius = UDim.new(1, 0)
+sliderCorner2.Parent = sliderFill
+
+-- Chức năng kéo thanh trượt (mobile friendly)
+local dragging = false
+local function updateRange(input)
+    local relativeX = (input.Position.X - slider.AbsolutePosition.X) / slider.AbsoluteSize.X
+    local newRange = math.clamp(math.floor(relativeX * 50), 10, 50)
+    Settings.Range = newRange
+    sliderFill.Size = UDim2.new(newRange / 50, 0, 1, 0)
+    sliderLabel.Text = "Tầm đánh: " .. newRange
+end
+
+slider.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Touch then
+        dragging = true
+        updateRange(input)
+    end
+end)
+
+slider.InputEnded:Connect(function()
+    dragging = false
+end)
+
+game:GetService("UserInputService").TouchMoved:Connect(function(input)
+    if dragging then
+        updateRange(input)
+    end
+end)
+
+print("✅ Đã tải Kill Aura cho điện thoại!")
+print("📱 Chạm vào nút tròn màu đỏ để bật/tắt")
+print("📏 Kéo thanh trượt để chỉnh tầm đánh")
