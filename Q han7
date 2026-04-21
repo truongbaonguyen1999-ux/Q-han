@@ -1,0 +1,387 @@
+-- ========== VAMPIRE HELPER - PHÂN BIỆT PHE + KHÔNG DỊCH CHUYỂN ==========
+-- Chỉ đánh Human (kẻ địch), đứng xa vẫn trúng, ESP màu đỏ cho Human
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local LocalPlayer = Players.LocalPlayer
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+
+-- Cài đặt
+local Settings = {
+    AutoPunch = false,
+    MaxDistance = 120,
+    ShowESP = false,
+    PunchDelay = 0.015
+}
+
+-- Tìm remote tấn công
+local AttackRemotes = {}
+local function findRemotes()
+    for _, remote in pairs(ReplicatedStorage:GetDescendants()) do
+        if remote:IsA("RemoteEvent") then
+            local name = remote.Name:lower()
+            if name:find("punch") or name:find("attack") or name:find("hit") or name:find("damage") or name:find("melee") then
+                table.insert(AttackRemotes, remote)
+            end
+        end
+    end
+    if #AttackRemotes == 0 then
+        for _, remote in pairs(ReplicatedStorage:GetDescendants()) do
+            if remote:IsA("RemoteEvent") then table.insert(AttackRemotes, remote) end
+        end
+    end
+    print("[Helper] Tìm thấy " .. #AttackRemotes .. " remote")
+end
+pcall(findRemotes)
+
+-- ========== PHÂN BIỆT PHE (QUAN TRỌNG NHẤT) ==========
+local function IsEnemy(player)
+    -- Nếu là chính mình -> không phải kẻ địch
+    if player == LocalPlayer then return false end
+    
+    local myTeam = LocalPlayer.Team
+    local theirTeam = player.Team
+    
+    -- Cách 1: Dựa vào Team (nếu game có)
+    if myTeam and theirTeam then
+        if myTeam ~= theirTeam then
+            return true  -- Khác team = kẻ địch
+        else
+            return false -- Cùng team = đồng đội
+        end
+    end
+    
+    -- Cách 2: Dựa vào tên đội (Human / Vampire)
+    if theirTeam then
+        local teamName = theirTeam.Name:lower()
+        if teamName:find("human") or teamName:find("humanoid") or teamName:find("survivor") then
+            return true  -- Human = kẻ địch
+        else
+            return false -- Vampire = đồng đội
+        end
+    end
+    
+    -- Cách 3: Dựa vào màu sắc của đội (nếu có)
+    if theirTeam and theirTeam.TeamColor then
+        local color = theirTeam.TeamColor.Name:lower()
+        -- Human thường màu xanh lá, xanh dương; Vampire màu đỏ, tím
+        if color:find("blue") or color:find("green") or color:find("yellow") then
+            return true  -- Màu sáng = Human (tạm coi là kẻ địch)
+        else
+            return false -- Màu tối = Vampire
+        end
+    end
+    
+    -- Cách 4: Dựa vào tên nhân vật hoặc attribute
+    local character = player.Character
+    if character then
+        if character:GetAttribute("Team") then
+            local attr = character:GetAttribute("Team"):lower()
+            if attr:find("human") then return true
+            else return false end
+        end
+    end
+    
+    -- Mặc định: nếu không xác định được, coi là kẻ địch (để an toàn)
+    return true
+end
+
+-- ========== ESP (Đỏ = Kẻ địch / Human, Xanh = Đồng đội / Vampire) ==========
+local ESPObjects = {}
+local function updateESP()
+    for _, plr in pairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer then
+            local char = plr.Character
+            if char and char:FindFirstChild("HumanoidRootPart") and Settings.ShowESP then
+                if not ESPObjects[plr] then
+                    local box = Instance.new("BoxHandleAdornment")
+                    box.Size = Vector3.new(4, 5, 2)
+                    -- Phân biệt màu theo phe
+                    if IsEnemy(plr) then
+                        box.Color3 = Color3.fromRGB(255, 0, 0)   -- ĐỎ = Kẻ địch (Human)
+                    else
+                        box.Color3 = Color3.fromRGB(0, 255, 0)   -- XANH = Đồng đội (Vampire)
+                    end
+                    box.Transparency = 0.4
+                    box.AlwaysOnTop = true
+                    box.Adornee = char.HumanoidRootPart
+                    box.Parent = char
+                    ESPObjects[plr] = box
+                else
+                    -- Cập nhật màu nếu cần
+                    if IsEnemy(plr) then
+                        ESPObjects[plr].Color3 = Color3.fromRGB(255, 0, 0)
+                    else
+                        ESPObjects[plr].Color3 = Color3.fromRGB(0, 255, 0)
+                    end
+                end
+            elseif ESPObjects[plr] then
+                ESPObjects[plr]:Destroy()
+                ESPObjects[plr] = nil
+            end
+        end
+    end
+end
+
+-- Cập nhật ESP định kỳ
+coroutine.wrap(function()
+    while true do
+        if Settings.ShowESP then
+            pcall(updateESP)
+        end
+        task.wait(0.3)
+    end
+end)()
+
+-- ========== TÌM KẺ ĐỊCH GẦN NHẤT (CHỈ HUMAN) ==========
+local function GetNearestEnemy()
+    local char = LocalPlayer.Character
+    if not char or not char:FindFirstChild("HumanoidRootPart") then return nil end
+    
+    local nearest = nil
+    local minDist = Settings.MaxDistance
+    local myPos = char.HumanoidRootPart.Position
+    
+    for _, plr in pairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer and IsEnemy(plr) then  -- CHỈ LẤY KẺ ĐỊCH
+            local tChar = plr.Character
+            if tChar and tChar:FindFirstChild("HumanoidRootPart") then
+                local hum = tChar:FindFirstChild("Humanoid")
+                if hum and hum.Health > 0 then
+                    local dist = (tChar.HumanoidRootPart.Position - myPos).Magnitude
+                    if dist < minDist then
+                        minDist = dist
+                        nearest = plr
+                    end
+                end
+            end
+        end
+    end
+    return nearest, minDist
+end
+
+-- ========== TẤN CÔNG TỪ XA (KHÔNG DỊCH CHUYỂN) ==========
+local function AttackEnemyFromDistance(target)
+    if not target or not target.Character then return end
+    local targetChar = target.Character
+    if not targetChar or not targetChar:FindFirstChild("HumanoidRootPart") then return end
+    
+    -- Gửi remote event (không cần teleport)
+    for _, remote in ipairs(AttackRemotes) do
+        pcall(function() remote:FireServer(targetChar) end)
+    end
+    
+    -- Kích hoạt tool hiện tại (vũ khí)
+    local myChar = LocalPlayer.Character
+    if myChar then
+        for _, tool in pairs(myChar:GetChildren()) do
+            if tool:IsA("Tool") then
+                pcall(function() tool:Activate() end)
+            end
+        end
+    end
+end
+
+-- Vòng lặp chính (tốc độ cao, không teleport)
+coroutine.wrap(function()
+    while true do
+        if Settings.AutoPunch then
+            local target = GetNearestEnemy()
+            if target then
+                pcall(AttackEnemyFromDistance, target)
+            end
+        end
+        task.wait(Settings.PunchDelay)
+    end
+end)()
+
+-- ========== GIAO DIỆN (GIỐNG ẢNH CỦA BẠN) ==========
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "VampireHelper"
+screenGui.ResetOnSpawn = false
+screenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+
+local mainFrame = Instance.new("Frame")
+mainFrame.Size = UDim2.new(0, 260, 0, 340)
+mainFrame.Position = UDim2.new(0.5, -130, 0.3, 0)
+mainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
+mainFrame.BackgroundTransparency = 0.15
+mainFrame.BorderSizePixel = 0
+mainFrame.Parent = screenGui
+
+local corner = Instance.new("UICorner")
+corner.CornerRadius = UDim.new(0, 12)
+corner.Parent = mainFrame
+
+-- Tiêu đề
+local title = Instance.new("TextLabel")
+title.Size = UDim2.new(1, 0, 0, 40)
+title.Position = UDim2.new(0, 0, 0, 0)
+title.BackgroundColor3 = Color3.fromRGB(40, 40, 55)
+title.BackgroundTransparency = 0.3
+title.Text = "Vampire Helper"
+title.TextColor3 = Color3.fromRGB(255, 255, 255)
+title.TextScaled = true
+title.Font = Enum.Font.GothamBold
+title.Parent = mainFrame
+
+-- Dòng phụ
+local subTitle = Instance.new("TextLabel")
+subTitle.Size = UDim2.new(1, 0, 0, 20)
+subTitle.Position = UDim2.new(0, 0, 0, 38)
+subTitle.BackgroundTransparency = 1
+subTitle.Text = "Chỉ tấn công Human (Kẻ địch)"
+subTitle.TextColor3 = Color3.fromRGB(255, 100, 100)
+subTitle.TextScaled = true
+subTitle.Font = Enum.Font.Gotham
+subTitle.Parent = mainFrame
+
+-- Nút Auto Punch
+local autoPunchBtn = Instance.new("TextButton")
+autoPunchBtn.Size = UDim2.new(0.9, 0, 0, 45)
+autoPunchBtn.Position = UDim2.new(0.05, 0, 0, 65)
+autoPunchBtn.BackgroundColor3 = Color3.fromRGB(150, 0, 0)
+autoPunchBtn.Text = "Auto Punch: OFF"
+autoPunchBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+autoPunchBtn.TextScaled = true
+autoPunchBtn.Font = Enum.Font.Gotham
+autoPunchBtn.Parent = mainFrame
+local btnCorner = Instance.new("UICorner")
+btnCorner.CornerRadius = UDim.new(0, 8)
+btnCorner.Parent = autoPunchBtn
+
+-- Thanh trượt tầm đánh
+local distLabel = Instance.new("TextLabel")
+distLabel.Size = UDim2.new(0.9, 0, 0, 25)
+distLabel.Position = UDim2.new(0.05, 0, 0, 118)
+distLabel.BackgroundTransparency = 1
+distLabel.Text = "Tầm đánh: " .. Settings.MaxDistance .. " studs"
+distLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+distLabel.TextScaled = true
+distLabel.Font = Enum.Font.Gotham
+distLabel.Parent = mainFrame
+
+local slider = Instance.new("Frame")
+slider.Size = UDim2.new(0.8, 0, 0, 8)
+slider.Position = UDim2.new(0.1, 0, 0, 148)
+slider.BackgroundColor3 = Color3.fromRGB(80, 80, 100)
+slider.BorderSizePixel = 0
+slider.Parent = mainFrame
+local sliderCorner = Instance.new("UICorner")
+sliderCorner.CornerRadius = UDim.new(1, 0)
+sliderCorner.Parent = slider
+
+local sliderFill = Instance.new("Frame")
+sliderFill.Size = UDim2.new(Settings.MaxDistance / 150, 0, 1, 0)
+sliderFill.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
+sliderFill.BorderSizePixel = 0
+sliderFill.Parent = slider
+local fillCorner = Instance.new("UICorner")
+fillCorner.CornerRadius = UDim.new(1, 0)
+fillCorner.Parent = sliderFill
+
+-- Nút ESP
+local espBtn = Instance.new("TextButton")
+espBtn.Size = UDim2.new(0.9, 0, 0, 40)
+espBtn.Position = UDim2.new(0.05, 0, 0, 168)
+espBtn.BackgroundColor3 = Color3.fromRGB(150, 0, 0)
+espBtn.Text = "ESP: OFF"
+espBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+espBtn.TextScaled = true
+espBtn.Font = Enum.Font.Gotham
+espBtn.Parent = mainFrame
+local espCorner = Instance.new("UICorner")
+espCorner.CornerRadius = UDim.new(0, 8)
+espCorner.Parent = espBtn
+
+-- Chú thích màu ESP
+local espNote = Instance.new("TextLabel")
+espNote.Size = UDim2.new(0.9, 0, 0, 20)
+espNote.Position = UDim2.new(0.05, 0, 0, 210)
+espNote.BackgroundTransparency = 1
+espNote.Text = "🔴 Đỏ = Human (Kẻ địch)  🟢 Xanh = Vampire (Đồng đội)"
+espNote.TextColor3 = Color3.fromRGB(180, 180, 180)
+espNote.TextScaled = true
+espNote.Font = Enum.Font.Gotham
+espNote.Parent = mainFrame
+
+-- 3 nút nhỏ
+local grabBtn = Instance.new("TextButton")
+grabBtn.Size = UDim2.new(0.28, 0, 0, 35)
+grabBtn.Position = UDim2.new(0.05, 0, 0, 240)
+grabBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 80)
+grabBtn.Text = "Grab"
+grabBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+grabBtn.TextScaled = true
+grabBtn.Font = Enum.Font.Gotham
+grabBtn.Parent = mainFrame
+
+local umbrellaBtn = Instance.new("TextButton")
+umbrellaBtn.Size = UDim2.new(0.28, 0, 0, 35)
+umbrellaBtn.Position = UDim2.new(0.36, 0, 0, 240)
+umbrellaBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 80)
+umbrellaBtn.Text = "Umbrella"
+umbrellaBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+umbrellaBtn.TextScaled = true
+umbrellaBtn.Font = Enum.Font.Gotham
+umbrellaBtn.Parent = mainFrame
+
+local coffinBtn = Instance.new("TextButton")
+coffinBtn.Size = UDim2.new(0.28, 0, 0, 35)
+coffinBtn.Position = UDim2.new(0.67, 0, 0, 240)
+coffinBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 80)
+coffinBtn.Text = "Coffin"
+coffinBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+coffinBtn.TextScaled = true
+coffinBtn.Font = Enum.Font.Gotham
+coffinBtn.Parent = mainFrame
+
+-- Số xu
+local coinLabel = Instance.new("TextLabel")
+coinLabel.Size = UDim2.new(1, 0, 0, 35)
+coinLabel.Position = UDim2.new(0, 0, 0, 290)
+coinLabel.BackgroundTransparency = 1
+coinLabel.Text = "6,202"
+coinLabel.TextColor3 = Color3.fromRGB(255, 215, 0)
+coinLabel.TextScaled = true
+coinLabel.Font = Enum.Font.GothamBold
+coinLabel.Parent = mainFrame
+
+-- ========== SỰ KIỆN ==========
+autoPunchBtn.MouseButton1Click:Connect(function()
+    Settings.AutoPunch = not Settings.AutoPunch
+    if Settings.AutoPunch then
+        autoPunchBtn.BackgroundColor3 = Color3.fromRGB(0, 150, 0)
+        autoPunchBtn.Text = "Auto Punch: ON (Chỉ đánh Human)"
+    else
+        autoPunchBtn.BackgroundColor3 = Color3.fromRGB(150, 0, 0)
+        autoPunchBtn.Text = "Auto Punch: OFF"
+    end
+end)
+
+local draggingSlider = false
+local function updateSlider(input)
+    local relativeX = math.clamp((input.Position.X - slider.AbsolutePosition.X) / slider.AbsoluteSize.X, 0, 1)
+    local newDist = math.floor(relativeX * 150)
+    newDist = math.clamp(newDist, 20, 150)
+    Settings.MaxDistance = newDist
+    sliderFill.Size = UDim2.new(newDist / 150, 0, 1, 0)
+    distLabel.Text = "Tầm đánh: " .. newDist .. " studs"
+end
+slider.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Touch then
+        draggingSlider = true
+        updateSlider(input)
+    end
+end)
+slider.InputEnded:Connect(function() draggingSlider = false end)
+UserInputService.TouchMoved:Connect(function(input)
+    if draggingSlider then updateSlider(input) end
+end)
+
+espBtn.MouseButton1Click:Connect(function()
+    Settings.ShowESP = not Settings.ShowESP
+    if Settings.ShowESP then
+        espBtn.BackgroundColor3 = Color3.fromRGB(0, 150, 0)
+        espBtn.Text = "ESP: ON"
