@@ -1,0 +1,137 @@
+-- ========== VAMPIRE HELPER - FAST PUNCH (ĐÁNH NHANH HƠN) ==========
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local lp = Players.LocalPlayer
+
+getgenv().vars = getgenv().vars or {
+    Enabled = false,
+    MaxDistance = 20,
+    ESPEnabled = true,
+    PunchDelay = 0.02  -- Đánh nhanh hơn (0.02 giây ~ 50 lần/giây)
+}
+
+-- Rayfield UI
+local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+local Window = Rayfield:CreateWindow({Name = "Vampire Helper - Fast Punch"})
+local CombatTab = Window:CreateTab("Vampire")
+
+-- Các hàm (giữ nguyên logic cũ)
+local function isEnemy(p)
+    if p == lp then return false end
+    if not p.Character then return false end
+    local hrp = p.Character:FindFirstChild("HumanoidRootPart")
+    local hum = p.Character:FindFirstChildOfClass("Humanoid")
+    if not hrp or not hum or hum.Health <= 0 then return false end
+    if lp.Team and p.Team and p.Team == lp.Team then return false end
+    return true
+end
+
+local function getClosestEnemy(maxDistance)
+    local char = lp.Character
+    if not char then return nil end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return nil end
+    local closest, closestDist = nil, maxDistance
+    for _, plr in pairs(Players:GetPlayers()) do
+        if isEnemy(plr) then
+            local thrp = plr.Character and plr.Character:FindFirstChild("HumanoidRootPart")
+            if thrp then
+                local dist = (hrp.Position - thrp.Position).Magnitude
+                if dist < closestDist then
+                    closestDist = dist
+                    closest = plr
+                end
+            end
+        end
+    end
+    return closest
+end
+
+local function getVampireRemote()
+    local char = lp.Character
+    if not char then return nil end
+    local vamp = char:FindFirstChild("Vampire")
+    if not vamp then return nil end
+    return vamp:FindFirstChild("VampireEvent")
+end
+
+-- Vòng lặp đánh NHANH (không dùng Heartbeat)
+coroutine.wrap(function()
+    while true do
+        if getgenv().vars.Enabled then
+            local target = getClosestEnemy(getgenv().vars.MaxDistance)
+            if target and target.Character then
+                local remote = getVampireRemote()
+                if remote then
+                    -- Gửi đủ các args cần thiết (như script cũ)
+                    local args = {"Charging","CancelCharging","Punch"}
+                    for _, v in ipairs(args) do remote:FireServer(v) end
+                    remote:FireServer("PunchHit", {hit = target.Character.HumanoidRootPart})
+                end
+            end
+        end
+        task.wait(getgenv().vars.PunchDelay)  -- Đánh nhanh hơn (0.02s)
+    end
+end)()
+
+-- Tạo UI (giữ nguyên các nút bấm)
+CombatTab:CreateToggle({
+    Name = "Auto Punch (Nhanh)",
+    CurrentValue = getgenv().vars.Enabled,
+    Callback = function(v) getgenv().vars.Enabled = v end
+})
+CombatTab:CreateSlider({
+    Name = "Tầm đánh",
+    Range = {5, 100},
+    CurrentValue = getgenv().vars.MaxDistance,
+    Callback = function(v) getgenv().vars.MaxDistance = v end
+})
+CombatTab:CreateSlider({
+    Name = "Tốc độ đánh (giây)",
+    Range = {0.01, 0.1},
+    Increment = 0.01,
+    CurrentValue = getgenv().vars.PunchDelay,
+    Callback = function(v) getgenv().vars.PunchDelay = v end
+})
+
+-- ESP (giữ nguyên dạng Highlight, không xuyên tường)
+local currentHighlight = nil
+CombatTab:CreateToggle({
+    Name = "ESP Target",
+    CurrentValue = getgenv().vars.ESPEnabled,
+    Callback = function(v)
+        getgenv().vars.ESPEnabled = v
+        if not v and currentHighlight then
+            currentHighlight:Destroy()
+            currentHighlight = nil
+        end
+    end
+})
+
+coroutine.wrap(function()
+    while true do
+        if getgenv().vars.Enabled and getgenv().vars.ESPEnabled then
+            local target = getClosestEnemy(getgenv().vars.MaxDistance)
+            if target and target.Character then
+                if not currentHighlight or currentHighlight.Adornee ~= target.Character then
+                    if currentHighlight then currentHighlight:Destroy() end
+                    local highlight = Instance.new("Highlight")
+                    highlight.Adornee = target.Character
+                    highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+                    highlight.FillTransparency = 0.5
+                    highlight.Parent = target.Character
+                    currentHighlight = highlight
+                end
+            elseif currentHighlight then
+                currentHighlight:Destroy()
+                currentHighlight = nil
+            end
+        elseif currentHighlight then
+            currentHighlight:Destroy()
+            currentHighlight = nil
+        end
+        task.wait(0.2)
+    end
+end)()
+
+print("✅ Fast Punch mode: Đánh nhanh hơn, giữ nguyên sát thương game")
