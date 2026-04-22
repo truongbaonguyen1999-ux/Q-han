@@ -1,0 +1,391 @@
+-- ========== VAMPIRE HELPER - BẢN CHUẨN NHẤT (PHÂN BIỆT PHE CHẮC CHẮN) ==========
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local LocalPlayer = Players.LocalPlayer
+local UserInputService = game:GetService("UserInputService")
+
+-- Cài đặt
+local Settings = {
+    Enabled = false,
+    MaxDistance = 100,
+    ShowESP = false,
+    AttackDelay = 0.02,
+    TargetMode = "Enemy"  -- Enemy / Friend / All
+}
+
+-- Tìm remote tấn công
+local AttackRemotes = {}
+for _, remote in pairs(ReplicatedStorage:GetDescendants()) do
+    if remote:IsA("RemoteEvent") then
+        table.insert(AttackRemotes, remote)
+    end
+end
+print("[VH] Tìm thấy " .. #AttackRemotes .. " remote")
+
+-- ========== PHÂN BIỆT PHE CHUẨN XÁC ==========
+local function IsEnemy(player)
+    if player == LocalPlayer then return false end
+    
+    -- Lấy team của bạn và team của mục tiêu
+    local myTeam = LocalPlayer.Team
+    local theirTeam = player.Team
+    
+    -- Nếu cả 2 đều có team
+    if myTeam and theirTeam then
+        return myTeam ~= theirTeam  -- Khác team = kẻ địch
+    end
+    
+    -- Nếu game dùng tên team (Human / Vampire)
+    if theirTeam and theirTeam.Name then
+        local teamName = theirTeam.Name:lower()
+        if teamName:find("human") or teamName:find("survivor") then
+            return true   -- Human là kẻ địch (nếu bạn là Vamp)
+        elseif teamName:find("vamp") or teamName:find("vampire") then
+            return false  -- Vamp là đồng đội
+        end
+    end
+    
+    -- Mặc định: nếu không xác định được, coi là kẻ địch (để an toàn)
+    return true
+end
+
+-- Hàm lọc theo chế độ
+local function ShouldAttack(player)
+    if Settings.TargetMode == "Enemy" then
+        return IsEnemy(player)
+    elseif Settings.TargetMode == "Friend" then
+        return not IsEnemy(player) and player ~= LocalPlayer
+    else  -- All
+        return player ~= LocalPlayer
+    end
+end
+
+-- ========== TÌM MỤC TIÊU ==========
+local function GetNearestTarget()
+    local char = LocalPlayer.Character
+    if not char or not char:FindFirstChild("HumanoidRootPart") then return nil end
+    
+    local nearest, minDist = nil, Settings.MaxDistance
+    local myPos = char.HumanoidRootPart.Position
+    
+    for _, plr in pairs(Players:GetPlayers()) do
+        if ShouldAttack(plr) then
+            local tChar = plr.Character
+            if tChar and tChar:FindFirstChild("HumanoidRootPart") then
+                local hum = tChar:FindFirstChild("Humanoid")
+                if hum and hum.Health > 0 then
+                    local dist = (tChar.HumanoidRootPart.Position - myPos).Magnitude
+                    if dist < minDist then
+                        minDist, nearest = dist, plr
+                    end
+                end
+            end
+        end
+    end
+    return nearest
+end
+
+-- ========== TẤN CÔNG (KHÔNG DỊCH CHUYỂN) ==========
+local function AttackTarget(target)
+    if not target or not target.Character then return end
+    local targetChar = target.Character
+    if not targetChar then return end
+    
+    for _, remote in ipairs(AttackRemotes) do
+        pcall(function() remote:FireServer(targetChar) end)
+    end
+    
+    local myChar = LocalPlayer.Character
+    if myChar then
+        for _, tool in pairs(myChar:GetChildren()) do
+            if tool:IsA("Tool") then
+                pcall(function() tool:Activate() end)
+            end
+        end
+    end
+end
+
+-- Vòng lặp chính
+coroutine.wrap(function()
+    while true do
+        if Settings.Enabled then
+            local target = GetNearestTarget()
+            if target then
+                AttackTarget(target)
+            end
+        end
+        task.wait(Settings.AttackDelay)
+    end
+end)()
+
+-- ========== ESP ==========
+local ESPObjects = {}
+local function UpdateESP()
+    for _, plr in pairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer then
+            local char = plr.Character
+            if char and char:FindFirstChild("HumanoidRootPart") and Settings.ShowESP then
+                if not ESPObjects[plr] then
+                    local box = Instance.new("BoxHandleAdornment")
+                    box.Size = Vector3.new(4, 5, 2)
+                    if IsEnemy(plr) then
+                        box.Color3 = Color3.fromRGB(255, 50, 50)  -- Đỏ = kẻ địch
+                    else
+                        box.Color3 = Color3.fromRGB(50, 255, 50)  -- Xanh = đồng đội
+                    end
+                    box.Transparency = 0.5
+                    box.AlwaysOnTop = true
+                    box.Adornee = char.HumanoidRootPart
+                    box.Parent = char
+                    ESPObjects[plr] = box
+                end
+            elseif ESPObjects[plr] then
+                ESPObjects[plr]:Destroy()
+                ESPObjects[plr] = nil
+            end
+        end
+    end
+end
+
+coroutine.wrap(function()
+    while true do
+        if Settings.ShowESP then pcall(UpdateESP) end
+        task.wait(0.3)
+    end
+end)()
+
+-- ========== TẠO MENU ==========
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "VampireHelper"
+screenGui.ResetOnSpawn = false
+screenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+
+local mainFrame = Instance.new("Frame")
+mainFrame.Size = UDim2.new(0, 260, 0, 340)
+mainFrame.Position = UDim2.new(0.5, -130, 0.3, 0)
+mainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
+mainFrame.BackgroundTransparency = 0.1
+mainFrame.BorderSizePixel = 0
+mainFrame.Parent = screenGui
+
+local corner = Instance.new("UICorner")
+corner.CornerRadius = UDim.new(0, 12)
+corner.Parent = mainFrame
+
+-- Tiêu đề
+local title = Instance.new("TextLabel")
+title.Size = UDim2.new(1, 0, 0, 40)
+title.Position = UDim2.new(0, 0, 0, 0)
+title.BackgroundColor3 = Color3.fromRGB(40, 40, 55)
+title.BackgroundTransparency = 0.3
+title.Text = "Vampire Helper"
+title.TextColor3 = Color3.fromRGB(255, 255, 255)
+title.TextScaled = true
+title.Font = Enum.Font.GothamBold
+title.Parent = mainFrame
+
+-- Nút bật/tắt
+local toggleBtn = Instance.new("TextButton")
+toggleBtn.Size = UDim2.new(0.9, 0, 0, 50)
+toggleBtn.Position = UDim2.new(0.05, 0, 0, 50)
+toggleBtn.BackgroundColor3 = Color3.fromRGB(150, 0, 0)
+toggleBtn.Text = "🔴 AUTO: OFF"
+toggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+toggleBtn.TextScaled = true
+toggleBtn.Font = Enum.Font.GothamBold
+toggleBtn.Parent = mainFrame
+local btnCorner = Instance.new("UICorner")
+btnCorner.CornerRadius = UDim.new(0, 8)
+btnCorner.Parent = toggleBtn
+
+-- Dropdown chọn chế độ
+local modeLabel = Instance.new("TextLabel")
+modeLabel.Size = UDim2.new(0.35, 0, 0, 30)
+modeLabel.Position = UDim2.new(0.05, 0, 0, 110)
+modeLabel.BackgroundTransparency = 1
+modeLabel.Text = "Chế độ:"
+modeLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+modeLabel.TextScaled = true
+modeLabel.Font = Enum.Font.Gotham
+modeLabel.Parent = mainFrame
+
+local modeBtn = Instance.new("TextButton")
+modeBtn.Size = UDim2.new(0.55, 0, 0, 35)
+modeBtn.Position = UDim2.new(0.4, 0, 0, 108)
+modeBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 80)
+modeBtn.Text = "🎯 Chỉ địch"
+modeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+modeBtn.TextScaled = true
+modeBtn.Font = Enum.Font.Gotham
+modeBtn.Parent = mainFrame
+local modeCorner = Instance.new("UICorner")
+modeCorner.CornerRadius = UDim.new(0, 8)
+modeCorner.Parent = modeBtn
+
+-- Thanh trượt tầm đánh
+local distLabel = Instance.new("TextLabel")
+distLabel.Size = UDim2.new(0.9, 0, 0, 25)
+distLabel.Position = UDim2.new(0.05, 0, 0, 155)
+distLabel.BackgroundTransparency = 1
+distLabel.Text = "📏 Tầm đánh: " .. Settings.MaxDistance
+distLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+distLabel.TextScaled = true
+distLabel.Font = Enum.Font.Gotham
+distLabel.Parent = mainFrame
+
+local slider = Instance.new("Frame")
+slider.Size = UDim2.new(0.8, 0, 0, 8)
+slider.Position = UDim2.new(0.1, 0, 0, 185)
+slider.BackgroundColor3 = Color3.fromRGB(80, 80, 100)
+slider.BorderSizePixel = 0
+slider.Parent = mainFrame
+local sliderCorner = Instance.new("UICorner")
+sliderCorner.CornerRadius = UDim.new(1, 0)
+sliderCorner.Parent = slider
+
+local sliderFill = Instance.new("Frame")
+sliderFill.Size = UDim2.new(Settings.MaxDistance / 150, 0, 1, 0)
+sliderFill.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
+sliderFill.BorderSizePixel = 0
+sliderFill.Parent = slider
+
+-- Nút ESP
+local espBtn = Instance.new("TextButton")
+espBtn.Size = UDim2.new(0.9, 0, 0, 40)
+espBtn.Position = UDim2.new(0.05, 0, 0, 210)
+espBtn.BackgroundColor3 = Color3.fromRGB(150, 0, 0)
+espBtn.Text = "👁️ ESP: OFF"
+espBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+espBtn.TextScaled = true
+espBtn.Font = Enum.Font.Gotham
+espBtn.Parent = mainFrame
+local espCorner = Instance.new("UICorner")
+espCorner.CornerRadius = UDim.new(0, 8)
+espCorner.Parent = espBtn
+
+-- Chú thích
+local note = Instance.new("TextLabel")
+note.Size = UDim2.new(0.9, 0, 0, 30)
+note.Position = UDim2.new(0.05, 0, 0, 260)
+note.BackgroundTransparency = 1
+note.Text = "🔴 Đỏ = Kẻ địch | 🟢 Xanh = Đồng đội"
+note.TextColor3 = Color3.fromRGB(150, 150, 150)
+note.TextScaled = true
+note.Font = Enum.Font.Gotham
+note.Parent = mainFrame
+
+-- Số xu
+local coinLabel = Instance.new("TextLabel")
+coinLabel.Size = UDim2.new(1, 0, 0, 30)
+coinLabel.Position = UDim2.new(0, 0, 0, 300)
+coinLabel.BackgroundTransparency = 1
+coinLabel.Text = "💰 0"
+coinLabel.TextColor3 = Color3.fromRGB(255, 215, 0)
+coinLabel.TextScaled = true
+coinLabel.Font = Enum.Font.GothamBold
+coinLabel.Parent = mainFrame
+
+-- ========== SỰ KIỆN ==========
+toggleBtn.MouseButton1Click:Connect(function()
+    Settings.Enabled = not Settings.Enabled
+    if Settings.Enabled then
+        toggleBtn.BackgroundColor3 = Color3.fromRGB(0, 150, 0)
+        toggleBtn.Text = "🟢 AUTO: ON"
+    else
+        toggleBtn.BackgroundColor3 = Color3.fromRGB(150, 0, 0)
+        toggleBtn.Text = "🔴 AUTO: OFF"
+    end
+end)
+
+-- Đổi chế độ
+local modeOptions = {"Chỉ địch", "Chỉ đồng đội", "Tất cả"}
+local modeValues = {"Enemy", "Friend", "All"}
+local modeIndex = 1
+modeBtn.MouseButton1Click:Connect(function()
+    modeIndex = modeIndex % 3 + 1
+    Settings.TargetMode = modeValues[modeIndex]
+    local modeText = modeOptions[modeIndex]
+    if modeText == "Chỉ địch" then modeBtn.Text = "🎯 " .. modeText
+    elseif modeText == "Chỉ đồng đội" then modeBtn.Text = "👥 " .. modeText
+    else modeBtn.Text = "🌍 " .. modeText end
+end)
+
+-- Thanh trượt
+local dragging = false
+local function updateSlider(input)
+    local relX = math.clamp((input.Position.X - slider.AbsolutePosition.X) / slider.AbsoluteSize.X, 0, 1)
+    local newDist = math.floor(relX * 150)
+    newDist = math.clamp(newDist, 20, 150)
+    Settings.MaxDistance = newDist
+    sliderFill.Size = UDim2.new(newDist / 150, 0, 1, 0)
+    distLabel.Text = "📏 Tầm đánh: " .. newDist
+end
+slider.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Touch then
+        dragging = true
+        updateSlider(input)
+    end
+end)
+slider.InputEnded:Connect(function() dragging = false end)
+UserInputService.TouchMoved:Connect(function(input)
+    if dragging then updateSlider(input) end
+end)
+
+espBtn.MouseButton1Click:Connect(function()
+    Settings.ShowESP = not Settings.ShowESP
+    if Settings.ShowESP then
+        espBtn.BackgroundColor3 = Color3.fromRGB(0, 150, 0)
+        espBtn.Text = "👁️ ESP: ON"
+        UpdateESP()
+    else
+        espBtn.BackgroundColor3 = Color3.fromRGB(150, 0, 0)
+        espBtn.Text = "👁️ ESP: OFF"
+        for _, obj in pairs(ESPObjects) do obj:Destroy() end
+        table.clear(ESPObjects)
+    end
+end)
+
+-- Cập nhật xu
+coroutine.wrap(function()
+    while true do
+        task.wait(1)
+        pcall(function()
+            local stats = LocalPlayer:FindFirstChild("leaderstats")
+            if stats then
+                local coins = stats:FindFirstChild("Coins") or stats:FindFirstChild("Money")
+                if coins then coinLabel.Text = "💰 " .. coins.Value end
+            end
+        end)
+    end
+end)()
+
+-- Kéo thả menu
+local dragMenu = false
+local dragStart, menuStart
+mainFrame.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Touch then
+        dragMenu = true
+        dragStart = input.Position
+        menuStart = mainFrame.Position
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then dragMenu = false end
+        end)
+    end
+end)
+UserInputService.TouchMoved:Connect(function(input)
+    if dragMenu then
+        local delta = input.Position - dragStart
+        mainFrame.Position = UDim2.new(menuStart.X.Scale, menuStart.X.Offset + delta.X, menuStart.Y.Scale, menuStart.Y.Offset + delta.Y)
+    end
+end)
+
+-- Hiển thị thông tin phe hiện tại
+task.wait(0.5)
+if LocalPlayer.Team then
+    print("[VH] Bạn đang ở đội: " .. LocalPlayer.Team.Name)
+    print("[VH] Chế độ mặc định: Chỉ đánh kẻ địch (khác team)")
+else
+    print("[VH] Không xác định được team, dùng chế độ mặc định")
+end
+
+print("✅ Vampire Helper đã sẵn sàng! Đã phân biệt phe, không đánh đồng đội")
